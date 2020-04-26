@@ -42,7 +42,7 @@
 #define brightnessPin A1                                       // analogue pin for brightness pot (comment out if you dont have it)
 #define colorPin A0                                            // analogue pin for colo pot (comment out if you dont have it)
 bool enableBrightnessPin = 1;                                // if your controller has no brightness potentiometer, set to 0
-bool enableColorPin = 0;                                     // if your controller has no color potentiometer, set to 0
+bool enableColorPin = 1;                                     // if your controller has no color potentiometer, set to 0
 
 #define LED_CK 11                                             // Clock pin for WS2801 or APA102.
 #define COLOR_ORDER GRB                                       // It's GRB for WS2812 and BGR for APA102.
