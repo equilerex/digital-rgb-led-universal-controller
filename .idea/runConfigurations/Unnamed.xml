@@ -1,0 +1,5 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Unnamed" type="platformio" factoryName="PlatformIO Debug" singleton="false" nameIsGenerated="true" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="esp32-basic-wearable-fastled" TARGET_NAME="PlatformIO" CONFIG_NAME="PlatformIO">
+    <method v="2" />
+  </configuration>
+</component>

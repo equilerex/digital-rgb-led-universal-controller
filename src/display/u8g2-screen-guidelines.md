@@ -23,7 +23,7 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(
 );
 
 void setup() {
-  Wire.begin();        // required before u8g2.begin() on ESP32
+  Wire.begin();        // required before u8g2.begin() on ESP32 unless it has an onboard display already wired up.
   u8g2.begin();
 }
 ```

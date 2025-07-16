@@ -1,21 +1,16 @@
 /**
  * ESP32 Basic Wearable FastLED Controller
- * 
- * Main controller code for LED wearables
- * 
- * IMPORTANT: This is the only file that should call FastLED.show() during normal operation.
- * All FastLED.show() calls have been centralized here to prevent timer resets.
  */
-
 #include <Arduino.h>
 #include "system/SystemManager.h"
-#include "animations/AnimationManager.h"
 #include "config/Config.h"
-
-// Include OLED manager directly in main if needed
-#if ENABLE_OLED 
+#include <FastLED.h>
+#include <esp_task_wdt.h>
+#include <soc/rtc_wdt.h>
+#include <WiFi.h>
+#if ENABLE_OLED
 #include "display/OLEDManager.h"
-OLEDManager oledManager;  // Create a global instance
+OLEDManager oledManager;
 #endif
 
 // Global system components
@@ -23,66 +18,74 @@ SystemManager systemManager;
 
 // Timing variables
 unsigned long lastUpdate = 0;
-unsigned long debugPrint = 0;
+unsigned long lastShow = 0;
 
 void setup() {
-  // Initialize serial first for debugging
-  Serial.begin(115200);
-  delay(1000); // Give serial time to initialize
-  
-  Serial.println(F("-------------------------Main.cpp setup------------------------------"));
-  
-  // Initialize the system
-  Serial.println(F("Calling systemManager.begin()..."));
-  systemManager.begin();
-  Serial.println(F("systemManager.begin() completed"));
-  
-  Serial.println(F("Setting up input manager..."));
-  // Initialize input manager
-  systemManager.getInputManager().begin(&systemManager);
-  Serial.println(F("Input manager setup complete"));
+    Serial.begin(115200);
+    delay(100);
+    Serial.println(F("Setup start"));
+    WiFi.mode(WIFI_OFF);
+    Serial.println(F("WiFi off"));
 
-  // Add a delay to help stability
-  delay(100);
+    #if defined(WATCHDOG_C3_WORKAROUND)
+    esp_task_wdt_init(0xFFFFFFFF, false);
+    esp_task_wdt_add(NULL);
+    #else
+    esp_task_wdt_init(0xFFFFFFFF, false);
+    rtc_wdt_protect_off();
+    rtc_wdt_disable();
+    #endif
 
-  // Initialize the animation system (this will load brightness and numLeds from preferences)
-  Serial.println(F("Setting up animation system..."));
-  systemManager.setupAnimationSystem();
-  Serial.println(F("Animation system setup complete"));
-  
-  // Add a delay to help stability
-  delay(1000);
+    // Test LED hardware
+    CRGB testLeds[MAX_LEDS];
+    FastLED.addLeds<LED_TYPE, LED_DATA_PIN, COLOR_ORDER>(testLeds, DEFAULT_NUM_LEDS);
+    fill_solid(testLeds, 5, CRGB::Red);
+    FastLED.setBrightness(50);
+    FastLED.show();
+    delay(1000);  // Give time to see
+    if (testLeds[0] != CRGB::Red) {
+        Serial.println(F("ERROR: LED test failed - check wiring/pin"));
+    } else {
+        Serial.println(F("LED test passed - red on first 5 LEDs"));
+    }
+    fill_solid(testLeds, MAX_LEDS, CRGB::Black);
+    FastLED.show();
 
-  // Initialize OLED display (if enabled)
-  #if ENABLE_OLED
-    Serial.println(F("Setting up OLED manager..."));
-    oledManager.setSystemManager(&systemManager);
-    oledManager.begin(); 
+    systemManager.begin();
+    delay(200);
+
+    #if ENABLE_OLED
+    oledManager.begin(&systemManager);
     Serial.println(F("OLED manager setup complete"));
-  #endif
-  
-  Serial.println(F("Setup complete. Running main loop..."));
+    #endif
+
+    systemManager.getInputManager().begin(&systemManager);
+    Serial.println(F("Input manager setup complete"));
+    Serial.println(F("Setup complete. Running main loop..."));
 }
 
 void loop() {
-  // Print a heartbeat message every few seconds
-  EVERY_N_SECONDS(5) {
-    Serial.println(F("Main loop running"));
-  }
+    EVERY_N_SECONDS(5) { Serial.println(F("Main loop running")); }
+    systemManager.update();
 
-  // Update inputs (handles button presses)
-  systemManager.updateInputs();
+    #if ENABLE_OLED
+    EVERY_N_MILLISECONDS(250) { oledManager.update(); }
+    #endif
 
-  // Update and show LEDs in a non-blocking way
-  systemManager.updateLeds();
+    if (millis() - lastShow >= ANIMATION_UPDATE_INTERVAL) {
+        lastShow = millis();
+        AnimationManager* animMgr = systemManager.getAnimationManager();
+        if (animMgr && animMgr->isReady() && animMgr->getCurrentPatternIndex() < animMgr->getPatternCount()) {
+            EVERY_N_SECONDS(10) { Serial.println(F("Calling FastLED.show()...")); }
+            FastLED.show();
+            EVERY_N_SECONDS(10) { Serial.println(F("FastLED.show() done")); }
+        } else {
+            EVERY_N_SECONDS(5) { Serial.println(F("Skipping FastLED.show() - no valid animation")); }
+        }
+        #if defined(WATCHDOG_C3_WORKAROUND)
+        esp_task_wdt_reset();
+        #endif
+    }
 
-#if ENABLE_OLED
-  // Update OLED display periodically
-  EVERY_N_MILLISECONDS(250) {
-    oledManager.update();
-  }
-#endif
-
-  // Small delay to prevent CPU overload
-  delay(5);
+    delay(5);
 }

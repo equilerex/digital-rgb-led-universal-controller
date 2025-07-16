@@ -153,3 +153,10 @@ for (int i = 0; i < NUM_LEDS; i++) {
 
 ---
  
+### 🔧 **Brightness & Power Management**
+
+* `FastLED.setBrightness(x);` // 0–255
+* `FastLED.setMaxPowerInVoltsAndMilliamps(5, 500);` // auto-dim if needed
+* **Note**: Brightness affects `.show()`, not the raw buffer
+
+---

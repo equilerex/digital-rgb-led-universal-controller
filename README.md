@@ -1,8 +1,8 @@
 # Digital-rgb-led-universal-controller
-My little universal controller library which i use for all of my projects running WS2812 / WS2812b strips. 
+My little universal controller library which i use for all of my projects running WS2812 / WS2812b strips.
 Contains a well curated set of animations which fit most simple project straight out of the box
 
- 
+
 ### Features
 * Brightness control potentiometer
 * color modifier potentiometer (works on most animations)
@@ -16,7 +16,7 @@ Contains a well curated set of animations which fit most simple project straight
 (will try to upload a video soon)
 * rainbowWithGlitter - scrolling rainbow with some random white glitter here and there
 * rainbow_march - same as above but without clitter
-* sinelon 
+* sinelon
 * two_sin
 * pop_fade
 * confetti
@@ -32,48 +32,48 @@ A versatile ESP32-based controller for LED wearables and projects using the Fast
 ## Features
 
 - **Multiple Animation Categories:**
-  - Slow & Soothing animations (Breathing, Aurora, Color Meditation, etc.)
-  - Solid Colors
-  - High BPM animations
-  - Party Vibe animations
-  - Psychedelic animations
-  - And more!
+    - Slow & Soothing animations (Breathing, Aurora, Color Meditation, etc.)
+    - Solid Colors
+    - High BPM animations
+    - Party Vibe animations
+    - Psychedelic animations
+    - And more!
 
 - **Hardware Control:**
-  - Single button interface for switching animations and entering different modes
-  - Long-press functionality for adjusting brightness and LED count
-  - Optional OLED display for status information
+    - Single button interface for switching animations and entering different modes
+    - Long-press functionality for adjusting brightness and LED count
+    - Optional OLED display for status information
 
 - **ESP32 Optimized:**
-  - Designed for ESP32-C3 boards (can be adapted for other ESP32 variants)
-  - Low power consumption for battery-powered wearables
-  - Efficient memory usage
-  - Enhanced watchdog timer handling to prevent boot loops
-  - Ultra-safe LED initialization for reliability
+    - Designed for ESP32-C3 boards (can be adapted for other ESP32 variants)
+    - Low power consumption for battery-powered wearables
+    - Efficient memory usage
+    - Enhanced watchdog timer handling to prevent boot loops
+    - Ultra-safe LED initialization for reliability
 
 ## Watchdog and Safe Boot Changes
 
 Recent updates have significantly improved stability and reliability:
 
 1. **Ultra-Safe LED Initialization**:
-   - Multi-stage initialization starting with just 1 LED
-   - Progressive brightness ramping to prevent power surges
-   - Extensive yield() calls to feed the watchdog timer
-   - Multiple safety delays between critical operations
+    - Multi-stage initialization starting with just 1 LED
+    - Progressive brightness ramping to prevent power surges
+    - Extensive yield() calls to feed the watchdog timer
+    - Multiple safety delays between critical operations
 
 2. **Watchdog Timer Management**:
-   - Optional watchdog disabling during critical initialization
-   - Adjustable watchdog timeout settings in Config.h
-   - Recovery mechanisms if the main loop takes too long
+    - Optional watchdog disabling during critical initialization
+    - Adjustable watchdog timeout settings in Config.h
+    - Recovery mechanisms if the main loop takes too long
 
 3. **Memory Optimization**:
-   - LED arrays properly allocated on the heap
-   - Smart memory management with proper cleanup
-   - More conservative default values for LED count and brightness
+    - LED arrays properly allocated on the heap
+    - Smart memory management with proper cleanup
+    - More conservative default values for LED count and brightness
 
 4. **Emergency Recovery**:
-   - System can detect when it's struggling and enter safe mode
-   - Emergency shutdown procedure to reset to a known good state
+    - System can detect when it's struggling and enter safe mode
+    - Emergency shutdown procedure to reset to a known good state
 
 ## Hardware Requirements
 
@@ -81,8 +81,8 @@ Recent updates have significantly improved stability and reliability:
 - WS2812B LED strip (or other FastLED compatible LEDs)
 - Momentary pushbutton
 - Optional:
-  - SSD1306 OLED display (128x64)
-  - Potentiometers for brightness/color adjustment
+    - SSD1306 OLED display (128x64)
+    - Potentiometers for brightness/color adjustment
 
 ## Wiring Diagram
 
@@ -96,8 +96,8 @@ Basic wiring:
 ### Using PlatformIO (Recommended)
 
 1. **Install PlatformIO:**
-   - Install [VS Code](https://code.visualstudio.com/)
-   - Install the [PlatformIO extension](https://platformio.org/install/ide?install=vscode)
+    - Install [VS Code](https://code.visualstudio.com/)
+    - Install the [PlatformIO extension](https://platformio.org/install/ide?install=vscode)
 
 2. **Clone and Open the Project:**
    ```bash
@@ -110,22 +110,24 @@ Basic wiring:
    PlatformIO will automatically install the required libraries when you build.
 
 4. **Configure the Project:**
-   - Edit `src/config/Config.h` to match your hardware setup
-   - Set `DEFAULT_NUM_LEDS` to your LED strip length
-   - Set `LED_TYPE` to your LED strip type (default: WS2812)
-   - Set `ENABLE_OLED` to 0 if you don't have an OLED display
+    - Edit `src/config/Config.h` to match your hardware setup
+    - Set `DEFAULT_NUM_LEDS` to your LED strip length
+    - Set `LED_TYPE` to your LED strip type (default: WS2812)
+    - Set `ENABLE_OLED` to 0 if you don't have an OLED display
 
 5. **Build and Upload:**
-   - Connect your ESP32 to your computer
-   - Click the PlatformIO "Upload" button in VS Code
-   - Or use the terminal commands:
-     ```bash
-     # First ensure all libraries are installed
-     pio lib install
-     
-     # Then build and upload
-     pio run -t upload
-     ```
+    - Connect your ESP32 to your computer
+    - Click the PlatformIO "Upload" button in VS Code
+    - Or use the terminal commands:
+      ```bash
+      # First ensure all libraries are installed
+      pio lib install
+      
+      # Then build and upload
+      pio run -t upload
+      ```
+   # PlatformIO method to clean project build artifacts, such as object files and compiled code. This helps to remove outdated or unnecessary files generated during the build process, allowing for a clean build environment.
+   pio run -t clean
 
 6. **Monitor Serial Output (Optional):**
    ```bash
@@ -135,7 +137,7 @@ Basic wiring:
 ### Common PlatformIO Commands
 
 note: if you want to remove (or add) any animations, just remove from or add names to `SimplePatternList` object
-  
+
 ### Author
 
 **Joosep Kõivistik** - [homepage](http://koivistik.com) |  [youtube](https://www.youtube.com/channel/UCqMFsfxrBrQIHnIKoJjqHTA) | |  [Instagram](https://www.instagram.com/joosepkoivistik/)

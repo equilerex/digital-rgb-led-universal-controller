@@ -4,7 +4,6 @@
 
 #include "InputManager.h"
 #include "../system/SystemManager.h"
-#include "../animations/AnimationManager.h"
 #include <FastLED.h>
 #include "../config/Config.h"
 
@@ -56,7 +55,7 @@ void InputManager::begin(SystemManager* sysManager) {
     button.attachClick(onClickHandler);
     button.attachLongPressStart(onLongPressStartHandler);
     button.attachLongPressStop(onLongPressStopHandler);
-    button.setPressMs(1000);  // Long press detected after 1 second
+    button.setPressMs(1000);  // Long press detected after 1 second (recommended API)
 
     Serial.println(F("InputManager ready..."));
 }
@@ -65,11 +64,6 @@ void InputManager::update() {
     // Update button state
     button.tick();
     
-    // Debug print every 5 seconds
-    EVERY_N_SECONDS(5) {
-        Serial.println(F("InputManager update tick"));
-    }
-    
     // Handle brightness cycling when in long press mode
     if (longPressMode) {
         cycleLongPress();
@@ -77,24 +71,35 @@ void InputManager::update() {
 }
 
 void InputManager::handleClick() { 
-    Serial.println(F("handleClick called"));
-    if (systemManager && systemManager->getAnimationManager()) {
-        // Directly trigger pattern change
-        Serial.println(F("Button clicked, changing pattern"));
-        systemManager->getAnimationManager()->nextPattern();
-    } else {
-        Serial.println(F("ERROR: systemManager or animationManager is null in handleClick"));
+    // First check if system manager is valid
+    if (systemManager == nullptr) {
+        Serial.println(F("ERROR: systemManager is null in handleClick"));
+        return;
     }
+
+    // Call the system manager to handle the pattern change
+    systemManager->handleNextPattern();
 }
 
 void InputManager::handleLongPressStart() {
     brightnessMode = true;
     longPressMode = true;
-    longPressStartTime = millis();  
+    longPressStartTime = millis();
+
     Serial.println(F("Button long press started: Entering brightness mode"));
 }
 
-void InputManager::handleLongPressStop() { 
+void InputManager::handleLongPressStop() {
+    // if released before proceeding to led mode, we wanted to change brightness
+    if (brightnessMode) {
+        systemManager->setBrightness(systemManager->getBrightness() + ADJUST_BRIGHTNESS_INCREMENT);
+    } else if (ledCountUpMode) {
+        systemManager->setNumLeds(systemManager->getNumLeds() + ADJUST_NUM_LEDS_INCREMENT);
+    } else if (ledCountDownMode) {
+        systemManager->setNumLeds(systemManager->getNumLeds() - ADJUST_NUM_LEDS_INCREMENT);
+    } else {
+        systemManager->setCurrentPattern(systemManager->getNumLeds() + ADJUST_NUM_LEDS_INCREMENT); // Increase
+    }
     brightnessMode = false;
     longPressMode = false;
     ledCountDownMode = false;
@@ -103,43 +108,31 @@ void InputManager::handleLongPressStop() {
 }
 
 void InputManager::cycleLongPress() {
+    // Failsafe check for system manager
+    if (systemManager == nullptr) {
+        Serial.println(F("ERROR: systemManager is null in cycleLongPress"));
+        longPressMode = false; // Exit long press mode to prevent further issues
+        return;
+    }
+    
     unsigned long elapsed = millis() - longPressStartTime; 
-    uint16_t numLeds = systemManager->getAnimationManager()->getNumLeds();
 
-    // If we've been holding for more than 5 seconds, switch to LED count up mode
-    if (elapsed >= 5000) {
-        // Turn off other modes
+    // Mode selection based on how long the button has been held
+     if (elapsed >= SHUFFLE_HOLDTIME) {
         ledCountDownMode = false;
-        
-        // Enter LED count up mode
+        ledCountUpMode = false;
+
+    } else if (elapsed >= LED_COUNT_UP_HOLDTIME) {
+        ledCountDownMode = false;
         ledCountUpMode = true;
-        
-        // Increase LED count by 100, with safe bounds checking
-        if (numLeds <= MAX_LEDS - 100) {
-            numLeds += 100;
-        } else {
-            numLeds = MAX_LEDS; // Cap at maximum
-        }
-        systemManager->getAnimationManager()->updateLedCount(numLeds);
-        
-        Serial.print(F("LED count increased to: "));
-        Serial.println(numLeds); 
-    } else if (elapsed >= 3000) {
+
+
+    } 
+    else if (elapsed >= LED_COUNT_DOWN_HOLDTIME) {
         // Turn off other modes
-        brightnessMode = false;  
-        // Enter LED count down mode
+        brightnessMode = false;
         ledCountDownMode = true;
-        
-        // Decrease LED count by 50, with safe bounds checking
-        if (numLeds > 50) {
-            numLeds -= 50;
-        } else {
-            numLeds = 1; // Minimum safe value
-        }
-        systemManager->getAnimationManager()->updateLedCount(numLeds);
-        
-        Serial.print(F("LED count decreased to: "));
-        Serial.println(numLeds);
-    }  
+
+
+    }
 }
- 
