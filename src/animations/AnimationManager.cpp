@@ -7,7 +7,8 @@
 #include <vector>
 #include <algorithm>
 #include "../config/Config.h"
-
+#include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <esp_task_wdt.h>
 #include <soc/rtc_wdt.h>
 
@@ -16,12 +17,11 @@ std::vector<AnimationInfo> globalAnimationRegistry;
 
 AnimationManager::AnimationManager(SystemManager& systemManager, CRGB* leds) : systemManager(systemManager), leds(leds), numLeds(DEFAULT_NUM_LEDS),
       brightness(DEFAULT_BRIGHTNESS), currentPatternIndex(0), currentAnimation(nullptr),
-      isInitialized(false), currentShuffleIndex(0), lastShuffleTime(0) {
-    
-    // Initialize LED arrays to zero
+      isInitialized(false), currentShuffleIndex(0), lastShuffleTime(0), inShuffleMode(false) {
+
     memset(oldLedsBuffer, 0, sizeof(oldLedsBuffer));
     memset(tempLeds, 0, sizeof(tempLeds));
-    
+
     Serial.print(F("AnimationManager constructor - LED array at: 0x"));
     Serial.println(reinterpret_cast<uintptr_t>(leds), HEX);
 }
@@ -39,10 +39,22 @@ void AnimationManager::begin() {
         static_cast<uint8_t>(systemManager.getSavedNumber(Config::PREF_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS)),
         static_cast<uint8_t>(MIN_BRIGHTNESS),
         static_cast<uint8_t>(MAX_BRIGHTNESS)
-    );  // Fixed: all clamp args are uint8_t
+    );
 
     Serial.print(F("Boot with numLeds: ")); Serial.println(numLeds);
     Serial.print(F("Boot with brightness: ")); Serial.println(brightness);
+
+    // Single FastLED controller init
+    Serial.println(F("=== LED Initialization ==="));
+    memset(leds, 0, sizeof(CRGB) * MAX_LEDS);
+    Serial.print(F("Initializing controller for max ")); Serial.print(MAX_LEDS); Serial.println(F(" LEDs."));
+    FastLED.addLeds<LED_TYPE, LED_DATA_PIN, COLOR_ORDER>(leds, MAX_LEDS);
+    FastLED.setBrightness(brightness);
+    #if defined(MAX_MILLIAMPS)
+    	Serial.print(F("Setting power limit: ")); Serial.print(MAX_MILLIAMPS); Serial.println(F(" mA"));
+    	FastLED.setMaxPowerInVoltsAndMilliamps(5, MAX_MILLIAMPS);
+    #endif
+    Serial.println(F("=== LED initialization complete! ==="));
 
     registerAnimations();
     Serial.print(F("Animations registered: "));
@@ -53,8 +65,27 @@ void AnimationManager::begin() {
         return;
     }
 
-    // Load saved pattern
-    uint8_t savedPatternIndex = systemManager.getSavedNumber(Config::PREF_PATTERN_KEY, 0);
+    // Load saved pattern with validation
+    Preferences prefs;
+    prefs.begin(Config::PREF_NAMESPACE, false);
+    uint8_t savedPatternIndex = prefs.getUChar(Config::PREF_PATTERN_KEY, 0);
+    if (!prefs.isKey(Config::PREF_PATTERN_KEY)) {
+        Serial.println(F("[WARNING] No saved pattern found; using default index 0"));
+    } else if (savedPatternIndex >= globalAnimationRegistry.size()) {
+        Serial.println(F("[WARNING] Saved pattern index invalid; resetting to 0"));
+        savedPatternIndex = 0;
+        prefs.putUChar(Config::PREF_PATTERN_KEY, 0);
+    } else {
+        Serial.print(F("[DEBUG] Loaded saved pattern index: ")); Serial.println(savedPatternIndex);
+    }
+    prefs.end();
+
+    inTransition = false;
+    inShuffleMode = (savedPatternIndex == 0);
+    if (inShuffleMode) {
+        lastShuffleTime = millis() - 6000; // Force immediate shuffle
+        Serial.println(F("[DEBUG] Forced initial shuffle to avoid boot delay."));
+    }
     setCurrentPattern(savedPatternIndex);
 
     isInitialized = true;
@@ -79,23 +110,55 @@ void AnimationManager::update() {
         return;
     }
 
-    if (currentPatternIndex == 0 && millis() - lastShuffleTime > 5000) {
+    if (inShuffleMode && millis() - lastShuffleTime > SHUFFLE_DURATION) {
         pickNewShuffle();
     }
+
+    logFastLEDDiagnostics();
 
     if (inTransition) {
         uint32_t elapsed = millis() - transitionStart;
         if (elapsed >= transitionDuration) {
             inTransition = false;
-            currentPatternIndex = transitionNewIndex;
+            currentPatternIndex = inShuffleMode ? 0 : transitionNewIndex; // Keep shuffle mode
+            Serial.println(F("[DEBUG] Transition complete."));
         } else {
             float progress = (float)elapsed / transitionDuration;
             for (uint16_t i = 0; i < numLeds; i++) {
                 leds[i] = blend(oldLedsBuffer[i], tempLeds[i], progress * 255);
             }
+            EVERY_N_SECONDS(5) {
+                Serial.print(F("[DEBUG] Transition progress: "));
+                Serial.print(progress * 100);
+                Serial.println(F("%"));
+                Serial.print(F("[DEBUG] Sample LED[0] in transition: R:"));
+                Serial.print(leds[0].r);
+                Serial.print(F(" G:"));
+                Serial.print(leds[0].g);
+                Serial.print(F(" B:"));
+                Serial.println(leds[0].b);
+            }
         }
     } else {
-        currentAnimation->update();
+        try {
+            currentAnimation->update();
+            EVERY_N_SECONDS(5) {
+                Serial.print(F("[DEBUG] Post-update sample LED[0] for "));
+                Serial.print(currentAnimation->getName());
+                Serial.print(F(": R:"));
+                Serial.print(leds[0].r);
+                Serial.print(F(" G:"));
+                Serial.print(leds[0].g);
+                Serial.print(F(" B:"));
+                Serial.println(leds[0].b);
+            }
+        } catch (...) {
+            Serial.print(F("[CRITICAL] Crash in animation update() for "));
+            Serial.println(currentAnimation->getName());
+            cleanupCurrentAnimation();
+            createAnimation(0);
+            inShuffleMode = true; // Fallback to shuffle
+        }
     }
 
     #if defined(WATCHDOG_C3_WORKAROUND)
@@ -103,17 +166,44 @@ void AnimationManager::update() {
     #endif
 }
 
-void AnimationManager::initLEDs() {
-    Serial.println(F("=== LED Initialization ==="));
-    memset(leds, 0, sizeof(CRGB) * MAX_LEDS);
-    Serial.print(F("Using buffer for ")); Serial.print(numLeds); Serial.println(F(" LEDs."));
-    FastLED.addLeds<LED_TYPE, LED_DATA_PIN, COLOR_ORDER>(leds, numLeds);
-    FastLED.setBrightness(brightness);
-    #if defined(MAX_MILLIAMPS)
-    Serial.print(F("Setting power limit: ")); Serial.print(MAX_MILLIAMPS); Serial.println(F(" mA"));
-    FastLED.setMaxPowerInVoltsAndMilliamps(5, MAX_MILLIAMPS);
-    #endif
-    Serial.println(F("=== LED initialization complete! ==="));
+void AnimationManager::logFastLEDDiagnostics() {
+    EVERY_N_MILLISECONDS(1000) {
+        if (leds == nullptr) {
+            Serial.println(F("[CRITICAL] FastLED buffer is null! Check memory allocation."));
+            return;
+        }
+
+        uintptr_t addr = reinterpret_cast<uintptr_t>(leds);
+        bool validAddress = (addr >= 0x3FC80000 && addr <= 0x3FCE0000);
+        if (!validAddress) {
+            Serial.print(F("[CAUTION] FastLED buffer address suspicious: 0x"));
+            Serial.println(addr, HEX);
+        } else {
+            Serial.print(F("[HEALTHY] FastLED buffer address: 0x"));
+            Serial.println(addr, HEX);
+        }
+
+        bool bufferOverrun = false;
+        for (uint16_t i = numLeds; i < MAX_LEDS; i++) {
+            if (leds[i] != CRGB::Black) {
+                bufferOverrun = true;
+                Serial.print(F("[CRITICAL] Buffer overrun at index "));
+                Serial.println(i);
+                break;
+            }
+        }
+        if (!bufferOverrun) {
+            Serial.println(F("[HEALTHY] No buffer overruns detected."));
+        }
+
+        size_t heapFree = ESP.getFreeHeap();
+        Serial.print(F("[INFO] Heap free: "));
+        Serial.print(heapFree);
+        Serial.println(F(" bytes"));
+        if (heapFree < 10000) {
+            Serial.println(F("[CRITICAL] Heap memory low! Risk of crashes."));
+        }
+    }
 }
 
 void AnimationManager::registerAnimations() {
@@ -135,11 +225,12 @@ void AnimationManager::nextPattern() {
     uint8_t newIndex = (currentPatternIndex + 1) % globalAnimationRegistry.size();
     Serial.print(F("nextPattern: from ")); Serial.print(currentPatternIndex);
     Serial.print(F(" to ")); Serial.println(newIndex);
+    inShuffleMode = (newIndex == 0);
     setCurrentPattern(newIndex);
 }
 
 const char* AnimationManager::getCurrentPatternName() {
-    uint8_t index = currentPatternIndex == 0 ? currentShuffleIndex : currentPatternIndex;
+    uint8_t index = inShuffleMode ? currentShuffleIndex : currentPatternIndex;
     if (!globalAnimationRegistry.empty() && index < globalAnimationRegistry.size()) {
         return globalAnimationRegistry[index].name ? globalAnimationRegistry[index].name : "Missing";
     }
@@ -154,24 +245,37 @@ uint8_t AnimationManager::getCurrentPatternIndex() {
     return currentPatternIndex;
 }
 
-
 void AnimationManager::setCurrentPattern(uint8_t index) {
+    inTransition = false;
     if (globalAnimationRegistry.empty()) {
         Serial.println(F("ERROR: No animations registered"));
         currentAnimation = nullptr;
         currentPatternIndex = 0;
+        inShuffleMode = true;
+        Preferences prefs;
+        prefs.begin(Config::PREF_NAMESPACE, false);
+        if (prefs.putUChar(Config::PREF_PATTERN_KEY, 0) == 0) {
+            Serial.println(F("[ERROR] Failed to save pattern index 0"));
+        }
+        prefs.end();
         return;
     }
 
-    // Fix: ensure all clamp arguments are uint8_t
     index = std::clamp(index, static_cast<uint8_t>(0), static_cast<uint8_t>(globalAnimationRegistry.size() - 1));
     currentPatternIndex = index;
+    inShuffleMode = (index == 0);
 
+    createAnimation(inShuffleMode ? currentShuffleIndex : index);
 
-    createAnimation(index);
+    Preferences prefs;
+    prefs.begin(Config::PREF_NAMESPACE, false);
+    if (prefs.putUChar(Config::PREF_PATTERN_KEY, currentPatternIndex) == 0) {
+        Serial.println(F("[ERROR] Failed to save pattern index"));
+    } else {
+        Serial.print(F("[DEBUG] Saved pattern index: ")); Serial.println(currentPatternIndex);
+    }
+    prefs.end();
 
-
-    systemManager.pushSavedNumber(Config::PREF_PATTERN_KEY, currentPatternIndex);
     Serial.print(F("Pattern set: ")); Serial.print(currentPatternIndex);
     Serial.print(F(" - ")); Serial.println(getCurrentPatternName());
 }
@@ -185,12 +289,16 @@ void AnimationManager::setNumLeds(uint16_t count) {
     numLeds = std::clamp(count, (uint16_t)MIN_LEDS, (uint16_t)MAX_LEDS);
     cleanupCurrentAnimation();
     fill_solid(leds, MAX_LEDS, CRGB::Black);
-    FastLED.addLeds<LED_TYPE, LED_DATA_PIN, COLOR_ORDER>(leds, numLeds);
     FastLED.setBrightness(brightness);
     if (currentPatternIndex < globalAnimationRegistry.size()) {
-        createAnimation(currentPatternIndex);
+        createAnimation(inShuffleMode ? currentShuffleIndex : currentPatternIndex);
     }
-    systemManager.pushSavedNumber(Config::PREF_NUM_LEDS_KEY, numLeds);
+    Preferences prefs;
+    prefs.begin(Config::PREF_NAMESPACE, false);
+    if (prefs.putUShort(Config::PREF_NUM_LEDS_KEY, numLeds) == 0) {
+        Serial.println(F("[ERROR] Failed to save numLeds"));
+    }
+    prefs.end();
     Serial.print(F("LED count set: ")); Serial.println(numLeds);
 }
 
@@ -199,36 +307,39 @@ void AnimationManager::setBrightness(uint8_t value) {
         value,
         static_cast<uint8_t>(MIN_BRIGHTNESS),
         static_cast<uint8_t>(MAX_BRIGHTNESS)
-    );  // Fixed: all clamp args are uint8_t
+    );
     FastLED.setBrightness(brightness);
     if (currentAnimation) {
         currentAnimation->setBrightness(brightness);
     }
-    systemManager.pushSavedNumber(Config::PREF_BRIGHTNESS_KEY, brightness);
-    Serial.print(F("Brightness set: ")); Serial.println(brightness);
+    Preferences prefs;
+    prefs.begin(Config::PREF_NAMESPACE, false);
+    if (prefs.putUChar(Config::PREF_BRIGHTNESS_KEY, brightness) == 0) {
+        Serial.println(F("[ERROR] Failed to save brightness"));
+    }
+    prefs.end();
 }
 
 void AnimationManager::createAnimation(uint8_t index) {
-    Serial.println(F("DEBUG: Creating animation"));
+    Serial.print(F("DEBUG: Creating animation ")); Serial.println(index);
     cleanupCurrentAnimation();
     if (index >= globalAnimationRegistry.size()) {
-        Serial.print(F("ERROR: Invalid index: ")); Serial.println(index);
+        Serial.print(F("ERROR: Index too large: ")); Serial.print(index); Serial.print(F(" / ")); Serial.println(globalAnimationRegistry.size());
         index = 0;
     }
     if (numLeds < 1 || numLeds > MAX_LEDS) {
-        Serial.print(F("ERROR: Invalid LED count: ")); Serial.println(numLeds);
         numLeds = DEFAULT_NUM_LEDS;
     }
     fill_solid(leds, MAX_LEDS, CRGB::Black);
 
     Serial.print(F("Creating: ")); Serial.println(globalAnimationRegistry[index].name);
-        currentAnimation = globalAnimationRegistry[index].createFn(leds, numLeds);
-        if (currentAnimation) {
+    currentAnimation = globalAnimationRegistry[index].createFn(leds, numLeds);
+    if (currentAnimation) {
         currentAnimation->setBrightness(brightness);
         Serial.print(F("Animation created: ")); Serial.println(globalAnimationRegistry[index].name);
-        } else {
+    } else {
         Serial.println(F("ERROR: Animation creation failed"));
-        }
+    }
 }
 
 void AnimationManager::cleanupCurrentAnimation() {
@@ -256,17 +367,20 @@ void AnimationManager::startTransition(uint8_t newIndex) {
     }
     inTransition = true;
     transitionStart = millis();
+    transitionNewIndex = newIndex;
     Serial.println(F("Transition started"));
 }
 
 void AnimationManager::pickNewShuffle() {
+    lastShuffleTime = millis();
     if (globalAnimationRegistry.size() <= 1) {
         Serial.println(F("No animations to shuffle"));
         return;
     }
     currentShuffleIndex = random8(1, globalAnimationRegistry.size());
     startTransition(currentShuffleIndex);
-    lastShuffleTime = millis();
-    Serial.print(F("Shuffled to temporary index: "));
-    Serial.println(currentShuffleIndex);
+    Serial.print(F("Shuffled to index: "));
+    Serial.print(currentShuffleIndex);
+    Serial.print(F(" - Name: "));
+    Serial.println(globalAnimationRegistry[currentShuffleIndex].name);
 }

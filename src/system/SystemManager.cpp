@@ -20,24 +20,8 @@ SystemManager::~SystemManager() {
 
 void SystemManager::begin() {
     Serial.println(F("SystemManager Starting..."));
-
     initPreferences();
     initHardware();
-
-    // Test FastLED
-    FastLED.addLeds<LED_TYPE, LED_DATA_PIN, COLOR_ORDER>(leds, DEFAULT_NUM_LEDS);
-    fill_solid(leds, 5, CRGB::Red);
-    FastLED.setBrightness(50);
-    FastLED.show();
-    delay(1000);
-    if (leds[0] != CRGB::Red) {
-        Serial.println(F("ERROR: LED test failed - check wiring/pin"));
-    } else {
-        Serial.println(F("LED test passed - red on first 5 LEDs"));
-    }
-    fill_solid(leds, MAX_LEDS, CRGB::Black);
-    FastLED.show();
-
     // Create animation manager
     Serial.println(F("Creating AnimationManager..."));
     animationManager = new AnimationManager(*this, leds);
@@ -45,7 +29,7 @@ void SystemManager::begin() {
         Serial.println(F("ERROR: Failed to create AnimationManager"));
         return;
     }
-
+    delay(500);  // Allow time for hardware to settle
     animationManager->begin();
     Serial.print(F("Total animations: "));
     Serial.println(animationManager->getPatternCount());
@@ -68,8 +52,7 @@ void SystemManager::initHardware() {
 
 void SystemManager::updateLeds() {
     if (!animationManager) {
-        EVERY_N_SECONDS(5) { Serial.println(F("ERROR: Animation manager null")); }
-        return;
+        return; // Fail silently to avoid blocking with repeated error messages
     }
 
     unsigned long currentMillis = millis();
@@ -77,20 +60,21 @@ void SystemManager::updateLeds() {
 
     if (currentMillis - lastLedUpdate >= ANIMATION_UPDATE_INTERVAL) {
         lastLedUpdate = currentMillis;
-        EVERY_N_SECONDS(10) { Serial.println(F("Updating animation...")); }
+        
+        // Non-blocking animation update
         animationManager->update();
         lastSuccessfulUpdate = currentMillis;
-        EVERY_N_SECONDS(10) { Serial.println(F("Animation update complete")); }
     }
 
-    if (currentMillis - lastSuccessfulUpdate > 5000) {
-        EVERY_N_SECONDS(5) { Serial.println(F("WARNING: Animation update timeout")); }
+    // Reduce timeout logging frequency to avoid blocking
+    if (currentMillis - lastSuccessfulUpdate > 10000) { // Increased to 10 seconds
+        EVERY_N_SECONDS(30) { Serial.println(F("WARNING: Animation update timeout")); }
         lastSuccessfulUpdate = currentMillis;
     }
 }
 
 void SystemManager::update() {
-    EVERY_N_SECONDS(10) { Serial.println(F("Updating inputs...")); }
+    // Remove frequent debug logging to avoid blocking
     inputManager.update();
     updateLeds();
     #if defined(WATCHDOG_C3_WORKAROUND)
@@ -115,18 +99,30 @@ uint16_t SystemManager::getSavedNumber(const char* key, uint16_t defaultValue) {
 }
 
 void SystemManager::pushSavedString(const char* key, const String& value) {
-    Serial.print(F("Saving: ")); Serial.print(key); Serial.print(F(" = ")); Serial.println(value);
-    preferences.putString(key, value);
+    // Defer preferences write to avoid blocking main loop
+    static unsigned long lastWrite = 0;
+    if (millis() - lastWrite > 1000) { // Throttle writes to once per second
+        preferences.putString(key, value);
+        lastWrite = millis();
+    }
 }
 
 void SystemManager::pushSavedByte(const char* key, uint8_t value) {
-    Serial.print(F("Saving: ")); Serial.print(key); Serial.print(F(" = ")); Serial.println(value);
-    preferences.putUChar(key, value);
+    // Defer preferences write to avoid blocking main loop
+    static unsigned long lastWrite = 0;
+    if (millis() - lastWrite > 1000) { // Throttle writes to once per second
+        preferences.putUChar(key, value);
+        lastWrite = millis();
+    }
 }
 
 void SystemManager::pushSavedNumber(const char* key, uint16_t value) {
-    Serial.print(F("Saving: ")); Serial.print(key); Serial.print(F(" = ")); Serial.println(value);
-    preferences.putUShort(key, value);
+    // Defer preferences write to avoid blocking main loop
+    static unsigned long lastWrite = 0;
+    if (millis() - lastWrite > 1000) { // Throttle writes to once per second
+        preferences.putUShort(key, value);
+        lastWrite = millis();
+    }
 }
 
 void SystemManager::handleNextPattern() {

@@ -1,8 +1,3 @@
-/**
-* Animation Manager
- * Manages all animations and FastLED hardware
- */
-
 #ifndef ANIMATION_MANAGER_H
 #define ANIMATION_MANAGER_H
 
@@ -21,7 +16,6 @@ public:
 
     void begin();
     void update();
-    void initLEDs();
     CRGB* getLEDs() { return leds; }
     uint16_t getNumLeds() const { return numLeds; }
     uint8_t getBrightness() const { return brightness; }
@@ -46,19 +40,19 @@ private:
     CRGB tempLeds[MAX_LEDS];
     bool inTransition = false;
     uint32_t transitionStart = 0;
-    const uint32_t transitionDuration = SHUFFLE_DURATION; // ms, adjustable
+    const uint32_t transitionDuration = SHUFFLE_TRANSITION_DURATION; // Use dedicated duration
     uint8_t transitionNewIndex = 0;
+    void logFastLEDDiagnostics();
 
     // Shuffle mode fields
     uint8_t currentShuffleIndex;
     unsigned long lastShuffleTime;
+    bool inShuffleMode = false; // Track shuffle state
 
     void registerAnimations();
     void createAnimation(uint8_t index);
     void cleanupCurrentAnimation();
     void startTransition(uint8_t newIndex);
-
-    // Shuffle mode method
     void pickNewShuffle();
 };
 

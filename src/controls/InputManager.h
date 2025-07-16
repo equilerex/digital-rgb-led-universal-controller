@@ -24,10 +24,11 @@ public:
     void update();
     
     // Check if we're in brightness adjustment mode
-    bool isBrightnessMode() const { return brightnessMode; }
+    bool isBrightnessMode();
     
-    // Check if we're in LED count adjustment mode (either up or down)
-    bool isLedCountMode() const { return ledCountUpMode || ledCountDownMode; }
+    // Check if we're in LED count adjustment mode
+    bool isLedCountMode();
+
     
     // Check if we're in any long press mode
     bool isLongPressMode() const { return longPressMode; }

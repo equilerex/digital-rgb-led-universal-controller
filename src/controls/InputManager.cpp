@@ -81,6 +81,13 @@ void InputManager::handleClick() {
     systemManager->handleNextPattern();
 }
 
+bool InputManager::isBrightnessMode() {
+    return brightnessMode;
+}
+bool InputManager::isLedCountMode() {
+    return ledCountUpMode || ledCountDownMode;
+}
+
 void InputManager::handleLongPressStart() {
     brightnessMode = true;
     longPressMode = true;
@@ -118,7 +125,7 @@ void InputManager::cycleLongPress() {
     unsigned long elapsed = millis() - longPressStartTime; 
 
     // Mode selection based on how long the button has been held
-     if (elapsed >= SHUFFLE_HOLDTIME) {
+     if (elapsed >= SHUFFLE_BUTTON_HOLDTIME) {
         ledCountDownMode = false;
         ledCountUpMode = false;
 

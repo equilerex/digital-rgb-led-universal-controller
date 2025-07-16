@@ -7,7 +7,7 @@
 #include <FastLED.h>
 
 #define ENABLE_SAFE_MODE 1
-#define MAX_MILLIAMPS 1000
+#define MAX_MILLIAMPS 2000
 #define ENABLE_OLED 1
 
 #if ENABLE_OLED
@@ -35,11 +35,12 @@
 #define HUE_UPDATE_INTERVAL 20
 #define BRIGHTNESS_DISPLAY_DURATION 3000
 #define NUMLEDS_DISPLAY_DURATION 3000
-#define SHUFFLE_DURATION 3000
+#define SHUFFLE_DURATION 300000
+#define SHUFFLE_TRANSITION_DURATION 2000
 
 #define LED_COUNT_DOWN_HOLDTIME 2000
 #define LED_COUNT_UP_HOLDTIME 4000
-#define SHUFFLE_HOLDTIME 6000
+#define SHUFFLE_BUTTON_HOLDTIME 6000
 
 // OLED pins
 #define OLED_SDA 5
@@ -47,10 +48,10 @@
 #define OLED_RESET U8X8_PIN_NONE
 
 namespace Config {
-    inline constexpr const char* PREF_NAMESPACE = "jos_led_controller";
-    inline constexpr const char* PREF_PATTERN_KEY = "pattern";
-    inline constexpr const char* PREF_BRIGHTNESS_KEY = "brightness";
-    inline constexpr const char* PREF_NUM_LEDS_KEY = "numLeds";
+    inline constexpr const char* PREF_NAMESPACE = "jo-";
+    inline constexpr const char* PREF_PATTERN_KEY = "pat";
+    inline constexpr const char* PREF_BRIGHTNESS_KEY = "bri";
+    inline constexpr const char* PREF_NUM_LEDS_KEY = "leds";
 }
 
 enum AnimationCategory {
