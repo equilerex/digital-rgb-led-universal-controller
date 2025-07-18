@@ -1,15 +1,16 @@
+#include <Arduino.h>
 /**
  * ESP32 Basic Wearable FastLED Controller
  */
 #define FASTLED_INTERNAL //remove annoying pragma messages
-#include <Arduino.h>
 #include "system/SystemManager.h"
 #include "animations/AnimationManager.h"
 #include "config/Config.h"
+#include "config/PinConfig.h"
 #include <FastLED.h>
 #include <esp_task_wdt.h>
-#include <soc/rtc_wdt.h>
 #include <WiFi.h>
+#include <Preferences.h>
 #if ENABLE_OLED
 #include "display/OLEDManager.h"
   OLEDManager oledManager;
@@ -24,37 +25,44 @@ unsigned long lastShow = 0;
 
 void setup() {
     Serial.begin(115200);
-    delay(100);
     Serial.println(F("Setup start"));
     Serial.print(F("FastLED version: ")); Serial.println(FASTLED_VERSION);
     WiFi.mode(WIFI_OFF);
 
-    #if defined(WATCHDOG_C3_WORKAROUND)
-    esp_task_wdt_init(0xFFFFFFFF, false);
-    esp_task_wdt_add(NULL);
-    #else
-    esp_task_wdt_init(0xFFFFFFFF, false);
-    rtc_wdt_protect_off();
-    rtc_wdt_disable();
+    // Check NVS health
+    Preferences prefs;
+    prefs.begin(Config::PREF_NAMESPACE, false);
+    size_t freeEntries = prefs.freeEntries();
+    Serial.print(F("[INFO] NVS free entries: ")); Serial.println(freeEntries);
+    if (freeEntries < 10) {
+        Serial.println(F("[WARNING] NVS nearly full; clearing to prevent errors."));
+        prefs.clear();
+    }
+    prefs.end();
+
+    #if defined(WATCHDOG_C3_WORKAROUND) || defined(WATCHDOG_S3_WORKAROUND)
+        esp_task_wdt_init(0xFFFFFFFF, false);
+        esp_task_wdt_add(NULL);
     #endif
 
     systemManager.begin();
 
     #if ENABLE_OLED
         oledManager.setSystemManager(&systemManager);
+        oledManager.begin();
         Serial.println(F("OLED manager setup complete"));
     #endif
 
     // Test LED hardware post-AnimationManager begin
     AnimationManager* animMgr = systemManager.getAnimationManager();
-    if (animMgr) {
+    if (animMgr && animMgr->isReady()) {
         CRGB* leds = animMgr->getLEDs();
         fill_solid(leds, 5, CRGB::Red);
         FastLED.setBrightness(50);
         FastLED.show();
-        delay(1000);
+        delay(500);
         if (leds[0] != CRGB::Red) {
-            Serial.println(F("ERROR: LED test failed - check wiring/pin"));
+            Serial.println(F("ERROR: LED test failed - check wiring/pin or power supply"));
         } else {
             Serial.println(F("LED test passed - red on first 5 LEDs"));
         }
@@ -70,6 +78,11 @@ void setup() {
         Serial.print(F("[INFO] LED buffer size: "));
         Serial.println(sizeof(CRGB) * MAX_LEDS);
         Serial.println(F("[HEALTHY] If buffer address is in ESP32-C3 DRAM (0x3FC80000-0x3FCE0000) range, all good. Otherwise, caution!"));
+        Serial.print(F("[INFO] Estimated power draw (300 LEDs, brightness "));
+        Serial.print(animMgr ? animMgr->getBrightness() : 0);
+        Serial.print(F("): ~"));
+        Serial.print((300 * (animMgr ? animMgr->getBrightness() : 128) * 60) / 255);
+        Serial.println(F(" mA"));
     }
 
     systemManager.getInputManager().begin(&systemManager);
@@ -80,7 +93,7 @@ void setup() {
 void logHeapStackUsage() {
     static unsigned long lastLogTime = 0;
     unsigned long currentTime = millis();
-    if (currentTime - lastLogTime > 60000) {
+    if (currentTime - lastLogTime > 5000) {
         size_t heapFree = ESP.getFreeHeap();
         size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
         UBaseType_t stackHighWater = uxTaskGetStackHighWaterMark(NULL);
@@ -96,11 +109,9 @@ void logHeapStackUsage() {
         Serial.println(F(" (higher is healthier, <200 is caution, <100 is critical!)"));
 
         if (heapFree < 10000) {
-            Serial.println(F("[CRITICAL] Heap memory low! Poop be broken: Risk of crashes or random bugs."));
+            Serial.println(F("[CRITICAL] Heap memory low! Risk of crashes or random bugs."));
         } else if (heapFree < 20000) {
             Serial.println(F("[CAUTION] Heap memory getting low. Consider optimizing."));
-        } else {
-            Serial.println(F("[HEALTHY] Heap memory looks good."));
         }
 
         if (largestBlock < 5000) {
@@ -111,20 +122,26 @@ void logHeapStackUsage() {
             Serial.println(F("[CRITICAL] Stack high water mark is very low! Risk of stack overflow."));
         } else if (stackHighWater < 200) {
             Serial.println(F("[CAUTION] Stack high water mark is getting low. Monitor for overflows."));
-        } else {
-            Serial.println(F("[HEALTHY] Stack usage is safe."));
         }
         lastLogTime = currentTime;
     }
 }
 
 void loop() {
+  // Print a heartbeat message every few seconds
+  EVERY_N_SECONDS(5) {
+    Serial.println(F("Main loop running"));
+  }
+
     EVERY_N_SECONDS(60) { Serial.println(F("[INFO] Main loop running - system healthy if this repeats.")); }
     systemManager.update();
 
-    #if ENABLE_OLED
-    EVERY_N_MILLISECONDS(250) { oledManager.update(); }
-    #endif
+#if ENABLE_OLED
+  // Update OLED display periodically
+  EVERY_N_MILLISECONDS(250) {
+    oledManager.update();
+  }
+#endif
 
     logHeapStackUsage();
 
@@ -136,8 +153,14 @@ void loop() {
         lastShow = millis();
         AnimationManager* animMgr = systemManager.getAnimationManager();
         if (animMgr && animMgr->isReady()) {
+            unsigned long startTime = micros();
             FastLED.show();
-            EVERY_N_SECONDS(5) {
+            unsigned long duration = micros() - startTime;
+            //Serial.print(F("[DEBUG] FastLED.show() duration: "));
+            //Serial.print(duration);
+            //Serial.println(F(" microseconds"));
+
+            EVERY_N_SECONDS(20) {
                 CRGB* leds = animMgr->getLEDs();
                 Serial.print(F("[DEBUG] Post-show sample LED[0]: R:"));
                 Serial.print(leds[0].r);
@@ -147,7 +170,7 @@ void loop() {
                 Serial.println(leds[0].b);
             }
         } else {
-            EVERY_N_SECONDS(5) { Serial.println(F("[CAUTION] AnimationManager not ready while loop active")); }
+            EVERY_N_SECONDS(10) { Serial.println(F("[CAUTION] AnimationManager not ready while loop active")); }
         }
         #if defined(WATCHDOG_C3_WORKAROUND)
         esp_task_wdt_reset();

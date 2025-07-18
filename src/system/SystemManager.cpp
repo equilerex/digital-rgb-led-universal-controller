@@ -1,7 +1,8 @@
 /**
  * System Manager Implementation
  */
-
+#include <Arduino.h>
+#include "../config/PinConfig.h"
 #include "SystemManager.h"
 #include "../animations/AnimationManager.h"
 #include <esp_task_wdt.h>
@@ -34,7 +35,7 @@ void SystemManager::begin() {
     Serial.print(F("Total animations: "));
     Serial.println(animationManager->getPatternCount());
     Serial.print(F("Selected animation: "));
-    Serial.println(animationManager->getCurrentPatternName());
+    Serial.println(animationManager->getCurrentAnimationName());
 
     Serial.println(F("SystemManager ready"));
 }
@@ -74,14 +75,16 @@ void SystemManager::updateLeds() {
 }
 
 void SystemManager::update() {
-    // Remove frequent debug logging to avoid blocking
     inputManager.update();
     updateLeds();
+
+    // Handle watchdog reset in a non-blocking manner
     #if defined(WATCHDOG_C3_WORKAROUND)
     static unsigned long lastWDTFeed = 0;
-    if (millis() - lastWDTFeed > 1000) {
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastWDTFeed > 1000) {
         esp_task_wdt_reset();
-        lastWDTFeed = millis();
+        lastWDTFeed = currentMillis;
     }
     #endif
 }

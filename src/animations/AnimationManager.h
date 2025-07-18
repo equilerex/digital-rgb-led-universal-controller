@@ -20,13 +20,16 @@ public:
     uint16_t getNumLeds() const { return numLeds; }
     uint8_t getBrightness() const { return brightness; }
     void nextPattern();
-    const char* getCurrentPatternName();
+    const char* getCurrentAnimationName();
     uint8_t getPatternCount();
     uint8_t getCurrentPatternIndex();
     bool isReady() { return isInitialized; }
     void setCurrentPattern(uint8_t index);
     void setNumLeds(uint16_t count);
     void setBrightness(uint8_t value);
+
+    // Shuffle mode check
+    bool inShuffleMode() const { return currentPatternIndex == 0; }
 
 private:
     SystemManager& systemManager;
@@ -38,21 +41,20 @@ private:
     bool isInitialized;
     CRGB oldLedsBuffer[MAX_LEDS];
     CRGB tempLeds[MAX_LEDS];
-    bool inTransition = false;
-    uint32_t transitionStart = 0;
-    const uint32_t transitionDuration = SHUFFLE_TRANSITION_DURATION; // Use dedicated duration
-    uint8_t transitionNewIndex = 0;
-    void logFastLEDDiagnostics();
 
-    // Shuffle mode fields
+    // Shuffle/transition fields
+    bool inShuffleTransition;
+    uint32_t shuffleTransitionStart;
+    const uint32_t shuffleTransitionDuration = SHUFFLE_TRANSITION_DURATION;
+    uint8_t shuffleTransitionNewIndex;
     uint8_t currentShuffleIndex;
     unsigned long lastShuffleTime;
-    bool inShuffleMode = false; // Track shuffle state
 
+    void logFastLEDDiagnostics();
     void registerAnimations();
     void createAnimation(uint8_t index);
     void cleanupCurrentAnimation();
-    void startTransition(uint8_t newIndex);
+    void startShuffleTransition(uint8_t newIndex);
     void pickNewShuffle();
 };
 

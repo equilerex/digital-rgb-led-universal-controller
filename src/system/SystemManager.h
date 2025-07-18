@@ -41,7 +41,7 @@ public:
     void pushSavedNumber(const char* key, uint16_t value);
 
 private:
-    static constexpr const char* VERSION_INFO = "v1.0.0";
+    static constexpr const char* VERSION_INFO = "v1.69";
     Preferences preferences;
     InputManager inputManager;
     AnimationManager* animationManager;

@@ -1,11 +1,12 @@
 /**
  * Input Manager Implementation
  */
-
+#include <Arduino.h>
 #include "InputManager.h"
 #include "../system/SystemManager.h"
 #include <FastLED.h>
 #include "../config/Config.h"
+#include "../config/PinConfig.h"
 
 // Initialize static instance pointer
 InputManager* InputManager::instance = nullptr;
@@ -30,7 +31,7 @@ void InputManager::onLongPressStopHandler() {
 }
 
 InputManager::InputManager() :
-    buttonPin(BUTTON_PIN),
+    buttonPin(BUTTON_1_PIN),
     button(buttonPin, true),  // true = active LOW
     systemManager(nullptr),
     brightnessMode(false),

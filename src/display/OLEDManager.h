@@ -27,16 +27,14 @@ private:
     void drawBrightnessAdjustmentScreen(uint16_t brightness);
     void drawLedCountAdjustmentScreen(uint16_t numLeds);
     void drawNormalOperationScreen(uint16_t patternIndex, const char* patternName,
-                                  uint16_t brightness, uint16_t numLeds);
+                                  uint16_t brightness, uint16_t numLeds, bool inShuffleMode);
 
     void drawCenteredText(const char* text, int y, const uint8_t* font = u8g2_font_8x13_tr);
     void drawProgressBar(int x, int y, int width, int height, int percentage);
 
-    U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2; // Use SSD1306 for ESP32-C3 mini
+    U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2;
     bool available;
     SystemManager* systemManager;
-    uint16_t lastPatternNumber;
-    unsigned long patternChangeTime;
 };
 
 #endif

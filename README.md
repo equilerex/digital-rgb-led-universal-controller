@@ -123,9 +123,21 @@ Basic wiring:
       # First ensure all libraries are installed
       pio lib install
       
-      # Then build and upload
-      pio run -t upload
+      # Then build and upload for your board:
+      # For ESP32-C3 DevKitM-1:
+      pio run -e esp32-c3-devkitm-1 -t upload
+
+      # For ESP32-S3 DevKitC-1:
+      pio run -e esp32-s3-devkitc-1 -t upload
+
+      # For ESP32-D1 Mini (LOLIN32):
+      pio run -e esp32-d1-mini -t upload
+
+      # For ESP32 DevKit V1:
+      pio run -e esp32-devkit-v1 -t upload
       ```
+    - Replace the `-e <env>` argument with your board's environment name as listed in `platformio.ini`.
+
    # PlatformIO method to clean project build artifacts, such as object files and compiled code. This helps to remove outdated or unnecessary files generated during the build process, allowing for a clean build environment.
    pio run -t clean
 
@@ -137,6 +149,72 @@ Basic wiring:
 ### Common PlatformIO Commands
 
 note: if you want to remove (or add) any animations, just remove from or add names to `SimplePatternList` object
+
+## Editing Pin Assignments
+
+**Important:**  
+FastLED requires the LED data pin to be a compile-time constant.  
+You **cannot** change the LED pin using PlatformIO build flags or `platformio.ini`.  
+Instead, you must edit the pin assignments directly in `src/config/PinConfig.h` using board-specific `#ifdef` blocks.
+
+### Default Pin Assignments
+
+Below are the default pins for each supported board as defined in `src/config/PinConfig.h`:
+
+| Board                   | LED_DATA_PIN | BUTTON_1_PIN | OLED_SDA | OLED_SCL |
+|-------------------------|--------------|--------------|----------|----------|
+| ESP32-C3 DevKit         | 8            | 9            | 5        | 6        |
+| ESP32-S3 DevKitC-1      | 4            | 0            | 8        | 9        |
+| ESP32-D1 Mini (LOLIN32) | 4            | 13           | 21       | 22       |
+| ESP32 DevKit V1         | 4            | 13           | 21       | 22       |
+
+### How to Change Pins
+
+1. **Open `src/config/PinConfig.h`**
+
+2. **Find your board's section.**  
+   For example, for ESP32 DevKit V1:
+   ```cpp
+   // --- Classic ESP32 DevKit V1 ---
+   #elif defined(ARDUINO_ESP32_DEV)
+     #ifndef OLED_SDA
+       #define OLED_SDA 21
+     #endif
+     #ifndef OLED_SCL
+       #define OLED_SCL 22
+     #endif
+     #ifndef LED_DATA_PIN
+       #define LED_DATA_PIN 4
+     #endif
+     #ifndef BUTTON_1_PIN
+       #define BUTTON_1_PIN 13
+     #endif
+   ```
+
+3. **Edit the pin numbers as needed.**  
+   For example, to change the LED data pin to GPIO 5:
+   ```cpp
+   #ifndef LED_DATA_PIN
+     #define LED_DATA_PIN 5
+   #endif
+   ```
+
+4. **Save the file and rebuild/upload your firmware.**
+
+### Quick Reference
+
+- **Upload for a specific board:**  
+  `pio run -e <env> -t upload`  
+  (Replace `<env>` with your board's environment name.)
+
+- **Edit pins:**  
+  Change pin defines in `src/config/PinConfig.h` under your board's section.
+
+### Why not use PlatformIO build flags?
+
+FastLED requires the LED data pin to be a static constant at compile time.  
+PlatformIO build flags (`-D CONFIG_LED_DATA_PIN=...`) do **not** work for this purpose.  
+Always set your pins in `PinConfig.h` using the correct board `#ifdef` block.
 
 ### Author
 
@@ -150,4 +228,3 @@ Big thanks to:
 * [Andrew Tuline](https://github.com/atuline/FastLED-Demos) for the original repository
 
 ### Boards confirmed to work on:
-

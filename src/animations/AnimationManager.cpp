@@ -10,14 +10,14 @@
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <esp_task_wdt.h>
-#include <soc/rtc_wdt.h>
+#include "../config/PinConfig.h"
 
 // Global definition
 std::vector<AnimationInfo> globalAnimationRegistry;
 
 AnimationManager::AnimationManager(SystemManager& systemManager, CRGB* leds) : systemManager(systemManager), leds(leds), numLeds(DEFAULT_NUM_LEDS),
       brightness(DEFAULT_BRIGHTNESS), currentPatternIndex(0), currentAnimation(nullptr),
-      isInitialized(false), currentShuffleIndex(0), lastShuffleTime(0), inShuffleMode(false) {
+      isInitialized(false), currentShuffleIndex(0), lastShuffleTime(0), inShuffleTransition(false), shuffleTransitionStart(0), shuffleTransitionNewIndex(0) {
 
     memset(oldLedsBuffer, 0, sizeof(oldLedsBuffer));
     memset(tempLeds, 0, sizeof(tempLeds));
@@ -33,13 +33,11 @@ AnimationManager::~AnimationManager() {
 void AnimationManager::begin() {
     Serial.println(F("AnimationManager Starting..."));
 
-    numLeds = std::clamp(systemManager.getSavedNumber(Config::PREF_NUM_LEDS_KEY, DEFAULT_NUM_LEDS),
-                         static_cast<uint16_t>(MIN_LEDS), static_cast<uint16_t>(MAX_LEDS));
-    brightness = std::clamp(
-        static_cast<uint8_t>(systemManager.getSavedNumber(Config::PREF_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS)),
-        static_cast<uint8_t>(MIN_BRIGHTNESS),
-        static_cast<uint8_t>(MAX_BRIGHTNESS)
-    );
+    uint16_t restoredNumLeds = systemManager.getSavedNumber(Config::PREF_NUM_LEDS_KEY, DEFAULT_NUM_LEDS);
+    uint16_t restoredBrightness = systemManager.getSavedNumber(Config::PREF_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS);
+    numLeds = std::clamp(systemManager.getSavedNumber(Config::PREF_NUM_LEDS_KEY, DEFAULT_NUM_LEDS), (uint16_t)MIN_LEDS, (uint16_t)MAX_LEDS);
+    brightness = std::clamp(systemManager.getSavedNumber(Config::PREF_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS), (uint16_t)MIN_BRIGHTNESS, (uint16_t)MAX_BRIGHTNESS);
+
 
     Serial.print(F("Boot with numLeds: ")); Serial.println(numLeds);
     Serial.print(F("Boot with brightness: ")); Serial.println(brightness);
@@ -74,18 +72,12 @@ void AnimationManager::begin() {
     } else if (savedPatternIndex >= globalAnimationRegistry.size()) {
         Serial.println(F("[WARNING] Saved pattern index invalid; resetting to 0"));
         savedPatternIndex = 0;
-        prefs.putUChar(Config::PREF_PATTERN_KEY, 0);
+        prefs.putUChar(Config::PREF_PATTERN_KEY, savedPatternIndex);
     } else {
         Serial.print(F("[DEBUG] Loaded saved pattern index: ")); Serial.println(savedPatternIndex);
     }
     prefs.end();
 
-    inTransition = false;
-    inShuffleMode = (savedPatternIndex == 0);
-    if (inShuffleMode) {
-        lastShuffleTime = millis() - 6000; // Force immediate shuffle
-        Serial.println(F("[DEBUG] Forced initial shuffle to avoid boot delay."));
-    }
     setCurrentPattern(savedPatternIndex);
 
     isInitialized = true;
@@ -93,56 +85,60 @@ void AnimationManager::begin() {
 }
 
 void AnimationManager::update() {
+    bool skipAnimationUpdate = false;
+
     if (!isInitialized) {
         EVERY_N_SECONDS(5) { Serial.println(F("Animation not initialized")); }
-        return;
+        skipAnimationUpdate = true;
     }
     if (!leds) {
         EVERY_N_SECONDS(5) { Serial.println(F("ERROR: Null LED array")); }
-        return;
+        skipAnimationUpdate = true;
     }
     if (globalAnimationRegistry.empty()) {
         EVERY_N_SECONDS(5) { Serial.println(F("ERROR: No animations registered")); }
-        return;
+        skipAnimationUpdate = true;
     }
     if (!currentAnimation) {
         EVERY_N_SECONDS(5) { Serial.println(F("ERROR: No active animation")); }
-        return;
+        skipAnimationUpdate = true;
     }
 
-    if (inShuffleMode && millis() - lastShuffleTime > SHUFFLE_DURATION) {
-        pickNewShuffle();
-    }
-
-    logFastLEDDiagnostics();
-
-    if (inTransition) {
-        uint32_t elapsed = millis() - transitionStart;
-        if (elapsed >= transitionDuration) {
-            inTransition = false;
-            currentPatternIndex = inShuffleMode ? 0 : transitionNewIndex; // Keep shuffle mode
-            Serial.println(F("[DEBUG] Transition complete."));
-        } else {
-            float progress = (float)elapsed / transitionDuration;
-            for (uint16_t i = 0; i < numLeds; i++) {
-                leds[i] = blend(oldLedsBuffer[i], tempLeds[i], progress * 255);
-            }
-            EVERY_N_SECONDS(5) {
-                Serial.print(F("[DEBUG] Transition progress: "));
-                Serial.print(progress * 100);
-                Serial.println(F("%"));
-                Serial.print(F("[DEBUG] Sample LED[0] in transition: R:"));
-                Serial.print(leds[0].r);
-                Serial.print(F(" G:"));
-                Serial.print(leds[0].g);
-                Serial.print(F(" B:"));
-                Serial.println(leds[0].b);
+    // Shuffle mode logic
+    if (inShuffleMode()) {
+        if (!lastShuffleTime || millis() - lastShuffleTime > SHUFFLE_DURATION) {
+            pickNewShuffle();
+        }
+        if (inShuffleTransition) {
+            uint32_t elapsed = millis() - shuffleTransitionStart;
+            if (elapsed >= shuffleTransitionDuration) {
+                inShuffleTransition = false;
+            } else {
+                float progress = (float)elapsed / shuffleTransitionDuration;
+                for (uint16_t i = 0; i < numLeds; i++) {
+                    leds[i] = blend(oldLedsBuffer[i], tempLeds[i], progress * 255);
+                }
+                EVERY_N_SECONDS(5) {
+                    Serial.print(F("[DEBUG] shuffleTransition progress: "));
+                    Serial.print(progress * 100);
+                    Serial.println(F("%"));
+                    Serial.print(F("[DEBUG] Sample LED[0] in shuffleTransition: R:"));
+                    Serial.print(leds[0].r);
+                    Serial.print(F(" G:"));
+                    Serial.print(leds[0].g);
+                    Serial.print(F(" B:"));
+                    Serial.println(leds[0].b);
+                }
+                skipAnimationUpdate = true;
             }
         }
-    } else {
+    }
+
+    // Normal animation update (only if not skipping)
+    if (!skipAnimationUpdate) {
         try {
             currentAnimation->update();
-            EVERY_N_SECONDS(5) {
+            EVERY_N_SECONDS(10) {
                 Serial.print(F("[DEBUG] Post-update sample LED[0] for "));
                 Serial.print(currentAnimation->getName());
                 Serial.print(F(": R:"));
@@ -157,9 +153,10 @@ void AnimationManager::update() {
             Serial.println(currentAnimation->getName());
             cleanupCurrentAnimation();
             createAnimation(0);
-            inShuffleMode = true; // Fallback to shuffle
         }
     }
+
+    logFastLEDDiagnostics();
 
     #if defined(WATCHDOG_C3_WORKAROUND)
     esp_task_wdt_reset();
@@ -178,9 +175,6 @@ void AnimationManager::logFastLEDDiagnostics() {
         if (!validAddress) {
             Serial.print(F("[CAUTION] FastLED buffer address suspicious: 0x"));
             Serial.println(addr, HEX);
-        } else {
-            Serial.print(F("[HEALTHY] FastLED buffer address: 0x"));
-            Serial.println(addr, HEX);
         }
 
         bool bufferOverrun = false;
@@ -191,15 +185,9 @@ void AnimationManager::logFastLEDDiagnostics() {
                 Serial.println(i);
                 break;
             }
-        }
-        if (!bufferOverrun) {
-            Serial.println(F("[HEALTHY] No buffer overruns detected."));
-        }
+        } 
 
         size_t heapFree = ESP.getFreeHeap();
-        Serial.print(F("[INFO] Heap free: "));
-        Serial.print(heapFree);
-        Serial.println(F(" bytes"));
         if (heapFree < 10000) {
             Serial.println(F("[CRITICAL] Heap memory low! Risk of crashes."));
         }
@@ -225,16 +213,14 @@ void AnimationManager::nextPattern() {
     uint8_t newIndex = (currentPatternIndex + 1) % globalAnimationRegistry.size();
     Serial.print(F("nextPattern: from ")); Serial.print(currentPatternIndex);
     Serial.print(F(" to ")); Serial.println(newIndex);
-    inShuffleMode = (newIndex == 0);
     setCurrentPattern(newIndex);
 }
 
-const char* AnimationManager::getCurrentPatternName() {
-    uint8_t index = inShuffleMode ? currentShuffleIndex : currentPatternIndex;
-    if (!globalAnimationRegistry.empty() && index < globalAnimationRegistry.size()) {
-        return globalAnimationRegistry[index].name ? globalAnimationRegistry[index].name : "Missing";
+const char* AnimationManager::getCurrentAnimationName() {
+    if (currentAnimation) {
+        return currentAnimation->getName();
     }
-    return "Unknown";
+    return "N/A";
 }
 
 uint8_t AnimationManager::getPatternCount() {
@@ -246,12 +232,11 @@ uint8_t AnimationManager::getCurrentPatternIndex() {
 }
 
 void AnimationManager::setCurrentPattern(uint8_t index) {
-    inTransition = false;
+    inShuffleTransition = false;
     if (globalAnimationRegistry.empty()) {
         Serial.println(F("ERROR: No animations registered"));
         currentAnimation = nullptr;
         currentPatternIndex = 0;
-        inShuffleMode = true;
         Preferences prefs;
         prefs.begin(Config::PREF_NAMESPACE, false);
         if (prefs.putUChar(Config::PREF_PATTERN_KEY, 0) == 0) {
@@ -261,11 +246,9 @@ void AnimationManager::setCurrentPattern(uint8_t index) {
         return;
     }
 
-    index = std::clamp(index, static_cast<uint8_t>(0), static_cast<uint8_t>(globalAnimationRegistry.size() - 1));
-    currentPatternIndex = index;
-    inShuffleMode = (index == 0);
+    currentPatternIndex = std::clamp(index, (uint8_t)0, (uint8_t)(globalAnimationRegistry.size() - 1));
 
-    createAnimation(inShuffleMode ? currentShuffleIndex : index);
+    createAnimation(inShuffleMode() ? currentShuffleIndex : currentPatternIndex);
 
     Preferences prefs;
     prefs.begin(Config::PREF_NAMESPACE, false);
@@ -277,7 +260,7 @@ void AnimationManager::setCurrentPattern(uint8_t index) {
     prefs.end();
 
     Serial.print(F("Pattern set: ")); Serial.print(currentPatternIndex);
-    Serial.print(F(" - ")); Serial.println(getCurrentPatternName());
+    Serial.print(F(" - ")); Serial.println(getCurrentAnimationName());
 }
 
 void AnimationManager::setNumLeds(uint16_t count) {
@@ -291,7 +274,7 @@ void AnimationManager::setNumLeds(uint16_t count) {
     fill_solid(leds, MAX_LEDS, CRGB::Black);
     FastLED.setBrightness(brightness);
     if (currentPatternIndex < globalAnimationRegistry.size()) {
-        createAnimation(inShuffleMode ? currentShuffleIndex : currentPatternIndex);
+        createAnimation(inShuffleMode() ? currentShuffleIndex : currentPatternIndex);
     }
     Preferences prefs;
     prefs.begin(Config::PREF_NAMESPACE, false);
@@ -350,25 +333,25 @@ void AnimationManager::cleanupCurrentAnimation() {
     }
 }
 
-void AnimationManager::startTransition(uint8_t newIndex) {
-    if (inTransition) {
-        Serial.println(F("Transition already in progress"));
+void AnimationManager::startShuffleTransition(uint8_t newIndex) {
+    if (inShuffleTransition) {
+        Serial.println(F("ShuffleTransition already in progress"));
         return;
     }
     if (currentAnimation) {
         currentAnimation->update();
         memcpy(oldLedsBuffer, leds, sizeof(CRGB) * numLeds);
     }
-    memcpy(tempLeds, leds, sizeof(CRGB) * numLeds);
+    // Prepare tempLeds for transition
     createAnimation(newIndex);
     if (currentAnimation) {
         currentAnimation->update();
         memcpy(tempLeds, leds, sizeof(CRGB) * numLeds);
     }
-    inTransition = true;
-    transitionStart = millis();
-    transitionNewIndex = newIndex;
-    Serial.println(F("Transition started"));
+    inShuffleTransition = true;
+    shuffleTransitionStart = millis();
+    shuffleTransitionNewIndex = newIndex;
+    Serial.println(F("ShuffleTransition started"));
 }
 
 void AnimationManager::pickNewShuffle() {
@@ -377,10 +360,16 @@ void AnimationManager::pickNewShuffle() {
         Serial.println(F("No animations to shuffle"));
         return;
     }
-    currentShuffleIndex = random8(1, globalAnimationRegistry.size());
-    startTransition(currentShuffleIndex);
+    // Pick a new shuffle index different from current
+    uint8_t newIndex;
+    do {
+        newIndex = random8(1, globalAnimationRegistry.size());
+    } while (newIndex == currentShuffleIndex);
+    currentShuffleIndex = newIndex;
+    startShuffleTransition(currentShuffleIndex);
     Serial.print(F("Shuffled to index: "));
     Serial.print(currentShuffleIndex);
     Serial.print(F(" - Name: "));
     Serial.println(globalAnimationRegistry[currentShuffleIndex].name);
 }
+
