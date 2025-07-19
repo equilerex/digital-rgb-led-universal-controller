@@ -29,7 +29,7 @@ public:
     void setBrightness(uint8_t value);
 
     // Shuffle mode check
-    bool inShuffleMode() const { return currentPatternIndex == 0; }
+    bool inShuffleMode() const { return currentPatternIndex < 4; }
 
 private:
     SystemManager& systemManager;
@@ -37,6 +37,7 @@ private:
     uint16_t numLeds;
     uint8_t brightness;
     uint8_t currentPatternIndex;
+    uint32_t currentShuffleDuration;
     Animation* currentAnimation;
     bool isInitialized;
     CRGB oldLedsBuffer[MAX_LEDS];

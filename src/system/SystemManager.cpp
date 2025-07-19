@@ -150,6 +150,8 @@ void SystemManager::setBrightness(uint16_t value) {
         return;
     }
     animationManager->setBrightness(value);
+    // Persist brightness value
+    preferences.putUChar(Config::PREF_BRIGHTNESS_KEY, value);
 }
 
 void SystemManager::setNumLeds(uint16_t count) {
@@ -158,6 +160,8 @@ void SystemManager::setNumLeds(uint16_t count) {
         return;
     }
     animationManager->setNumLeds(count);
+    // Persist LED count value
+    preferences.putUShort(Config::PREF_NUM_LEDS_KEY, count);
 }
 
 uint8_t SystemManager::getBrightness() const {

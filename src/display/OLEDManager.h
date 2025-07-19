@@ -21,6 +21,21 @@ public:
     void setSystemManager(SystemManager* sysManager);
 
 private:
+
+  int screenW = 128;
+    int screenH = 64;
+
+    // Dynamic layout offsets
+    int xOffset;
+    int yOffset;
+    int MAIN_SCREEN_TOP_ROW_Y = 0;
+    int MAIN_SCREEN_MID_ROW_Y = 0;
+    int MAIN_SCREEN_BOT_ROW_Y = 0;
+
+    unsigned long lastScrollTime = 0;
+    int scrollOffset = 0;
+
+    void drawLeftText(const char* text, int y, const uint8_t* font);
     void drawStartupScreen();
     void drawSystemErrorScreen();
     void drawAnimationErrorScreen();

@@ -22,17 +22,10 @@
 // Display constants
 #define OLED_RESET U8X8_PIN_NONE
 #define OLED_SDA_C3 5
-#define OLED_SCL_C3 6
-#define OLED_WIDTH 72
-#define OLED_HEIGHT 40
-#define OLED_X_OFFSET 5
-#define OLED_Y_OFFSET 0
-
+#define OLED_SCL_C3 6 
 // Screen row positions
 // real size 128x64 - 72 = 56x40
-#define MAIN_SCREEN_TOP_ROW_Y 35
-#define MAIN_SCREEN_MID_ROW_Y 45
-#define MAIN_SCREEN_BOT_ROW_Y 65
+#define X_OFFSET 28  // c3 has some off space on the left
 
 OLEDManager::OLEDManager() :
     u8g2(U8G2_R0, OLED_RESET, OLED_SCL, OLED_SDA),
@@ -48,9 +41,18 @@ void OLEDManager::begin() {
     u8g2.setContrast(128);
     u8g2.setBusClock(400000);
 
-    displayBootMessage("Booting...");
+    screenW = u8g2.getDisplayWidth();
+    screenH = u8g2.getDisplayHeight();
 
+    xOffset = screenW * 0.15;  // 5% from left
+    yOffset = screenH * 0.00;  // No Y offset for now
+    MAIN_SCREEN_TOP_ROW_Y = screenH * 0.55;
+    MAIN_SCREEN_MID_ROW_Y = screenH * 0.75;
+    MAIN_SCREEN_BOT_ROW_Y = screenH * 0.95;
+
+    displayBootMessage("Booting...");
     available = true;
+
     Serial.println(F("OLED ready"));
 }
 
@@ -77,7 +79,7 @@ void OLEDManager::update() {
     if (!skipOledUpdate && (currentTime - lastUpdateTime < 200)) {
         skipOledUpdate = true;
     }
-    u8g2.clearBuffer(); 
+    u8g2.clearBuffer();
 
     if (!skipOledUpdate) {
         lastUpdateTime = currentTime;
@@ -120,96 +122,108 @@ void OLEDManager::update() {
 }
 
 // Screen drawing methods
-void OLEDManager::displayBootMessage(const char* message) { 
-    u8g2.setFont(u8g2_font_6x10_tr);
-    drawCenteredText("Jo's blinky", OLED_Y_OFFSET + 20, u8g2_font_6x10_tr);
-    drawCenteredText(message, OLED_Y_OFFSET + 40, u8g2_font_6x10_tr);
+void OLEDManager::displayBootMessage(const char* message) {
+    drawCenteredText("Booting...", MAIN_SCREEN_TOP_ROW_Y, u8g2_font_5x7_mr);
+    drawCenteredText("Jo's blinky", MAIN_SCREEN_MID_ROW_Y, u8g2_font_8x13_mr);
+    char ver[16];
+    snprintf(ver, sizeof(ver), "V: %s", VERSION);
+    drawCenteredText(ver, MAIN_SCREEN_BOT_ROW_Y, u8g2_font_6x10_mr);
     u8g2.sendBuffer();
 }
 
-void OLEDManager::drawStartupScreen() { 
-    drawCenteredText("Starting...", MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_tr);
+void OLEDManager::drawStartupScreen() {
+    drawCenteredText("Starting...", MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_mr);
     u8g2.sendBuffer();
 }
 
-void OLEDManager::drawSystemErrorScreen() { 
-    drawCenteredText("SYS ERROR", MAIN_SCREEN_TOP_ROW_Y, u8g2_font_6x10_tr);
-    drawCenteredText("Check manager", MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_tr);
+void OLEDManager::drawSystemErrorScreen() {
+    drawCenteredText("SYS ERROR", MAIN_SCREEN_TOP_ROW_Y, u8g2_font_6x10_mr);
+    drawCenteredText("Check manager", MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_mr);
     u8g2.sendBuffer();
 }
 
-void OLEDManager::drawAnimationErrorScreen() { 
-    drawCenteredText("ANIM ERROR", MAIN_SCREEN_TOP_ROW_Y, u8g2_font_6x10_tr);
-    drawCenteredText("No animation", MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_tr);
+void OLEDManager::drawAnimationErrorScreen() {
+    drawCenteredText("ANIM ERROR", MAIN_SCREEN_TOP_ROW_Y, u8g2_font_6x10_mr);
+    drawCenteredText("No animation", MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_mr);
     u8g2.sendBuffer();
 }
 
-void OLEDManager::drawBrightnessAdjustmentScreen(uint16_t brightness) { 
-    u8g2.drawDisc(OLED_X_OFFSET + 5, MAIN_SCREEN_MID_ROW_Y - 5, 3);
-    u8g2.drawLine(OLED_X_OFFSET + 5, MAIN_SCREEN_MID_ROW_Y - 2,
-                  OLED_X_OFFSET + 5, MAIN_SCREEN_MID_ROW_Y + 1);
-    u8g2.drawLine(OLED_X_OFFSET + 3, MAIN_SCREEN_MID_ROW_Y + 1,
-                  OLED_X_OFFSET + 7, MAIN_SCREEN_MID_ROW_Y + 1);
+void OLEDManager::drawBrightnessAdjustmentScreen(uint16_t brightness) {
+    u8g2.drawDisc(xOffset + 5, MAIN_SCREEN_MID_ROW_Y - 5, 3);
+    u8g2.drawLine(xOffset + 5, MAIN_SCREEN_MID_ROW_Y - 2,
+                  xOffset + 5, MAIN_SCREEN_MID_ROW_Y + 1);
+    u8g2.drawLine(xOffset + 3, MAIN_SCREEN_MID_ROW_Y + 1,
+                  xOffset + 7, MAIN_SCREEN_MID_ROW_Y + 1);
 
     int brightnessPercent = map(brightness, MIN_BRIGHTNESS, MAX_BRIGHTNESS, 10, 100);
     char brightText[20];
     snprintf(brightText, sizeof(brightText), "%d%% BRIGHT", brightnessPercent);
-    drawCenteredText(brightText, MAIN_SCREEN_MID_ROW_Y + 10, u8g2_font_6x10_tr);
+    drawCenteredText(brightText, MAIN_SCREEN_MID_ROW_Y + 10, u8g2_font_6x10_mr);
 }
 
-void OLEDManager::drawLedCountAdjustmentScreen(uint16_t numLeds) { 
+void OLEDManager::drawLedCountAdjustmentScreen(uint16_t numLeds) {
     char ledText[20];
     snprintf(ledText, sizeof(ledText), "%d LEDs", numLeds);
-    drawCenteredText(ledText, MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_tr);
+    drawCenteredText(ledText, MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_mr);
 }
 
 void OLEDManager::drawNormalOperationScreen(uint16_t patternIndex, const char* patternName,
-                                           uint16_t brightness, uint16_t numLeds, bool inShuffleMode) { 
+                                           uint16_t brightness, uint16_t numLeds, bool inShuffleMode) {
     char topRow[40];
     if (inShuffleMode) {
-        snprintf(topRow, sizeof(topRow), "Shuffle");
+        switch (patternIndex) {
+            case 0: snprintf(topRow, sizeof(topRow), "R Shuffle"); break;
+            case 1: snprintf(topRow, sizeof(topRow), "5s Shuffle"); break;
+            case 2: snprintf(topRow, sizeof(topRow), "10S Shuffle"); break;
+            case 3: snprintf(topRow, sizeof(topRow), "5m Shuffle"); break;
+            default: snprintf(topRow, sizeof(topRow), "Shuffle");
+        }
     } else {
         snprintf(topRow, sizeof(topRow), "%s", patternName);
     }
-    u8g2.setFont(u8g2_font_5x7_tr);
-    drawCenteredText(topRow, MAIN_SCREEN_TOP_ROW_Y, u8g2_font_5x7_tr);
-
+    u8g2.setFont(u8g2_font_5x7_mr);
+    u8g2.setDrawColor(0); // Set draw color to background (usually 0 for black)
+    u8g2.setDrawColor(1); // Set draw color back to foreground
+    drawLeftText(topRow, MAIN_SCREEN_TOP_ROW_Y, u8g2_font_6x10_mr);
     char middleRow[20];
-    if (patternIndex == 0) {
+    if (inShuffleMode) {
         snprintf(middleRow, sizeof(middleRow), "%s", patternName);
-        u8g2.setFont(u8g2_font_6x10_tr);
+        drawLeftText(middleRow, MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_mr);
     } else {
         snprintf(middleRow, sizeof(middleRow), "#%d", patternIndex);
-        u8g2.setFont(u8g2_font_8x13_tr);
+        drawCenteredText(middleRow, MAIN_SCREEN_MID_ROW_Y, u8g2_font_8x13_mr);
     }
-    drawCenteredText(middleRow, MAIN_SCREEN_MID_ROW_Y, u8g2_font_6x10_tr);
 
     char bottomRow[30];
     int brightnessPercent = map(brightness, MIN_BRIGHTNESS, MAX_BRIGHTNESS, 20, 100);
     snprintf(bottomRow, sizeof(bottomRow), "B:%d%% L:%d", brightnessPercent, numLeds);
-
-    u8g2.setFont(u8g2_font_4x6_tr);
-    drawCenteredText(bottomRow, MAIN_SCREEN_BOT_ROW_Y, u8g2_font_4x6_tr);
+    drawCenteredText(bottomRow, MAIN_SCREEN_BOT_ROW_Y, u8g2_font_6x10_mr);
 }
 
 void OLEDManager::drawCenteredText(const char* text, int y, const uint8_t* font) {
     u8g2.setFont(font);
-    int16_t textWidth = u8g2.getStrWidth(text);
-    int16_t x = (128 - textWidth) / 2;
+    int x = (screenW - u8g2.getStrWidth(text)) / 2;
     u8g2.drawStr(x, y, text);
 }
 
-void OLEDManager::drawProgressBar(int x, int y, int width, int height, int percentage) { 
+
+void OLEDManager::drawProgressBar(int x, int y, int width, int height, int percentage) {
     percentage = constrain(percentage, 0, 100);
     int filledWidth = (width * percentage) / 100;
 
     u8g2.drawFrame(x, y, width, height);
     if (filledWidth > 0) {
-        u8g2.drawBox(x, y, filledWidth, height);
     }
 }
 
-void OLEDManager::setSystemManager(SystemManager* sysManager) { 
+void OLEDManager::setSystemManager(SystemManager* sysManager) {
     systemManager = sysManager;
     Serial.println(F("OLEDManager: SystemManager reference set"));
+}
+
+void OLEDManager::drawLeftText(const char* text, int y, const uint8_t* font) {
+
+    u8g2.setFont(font);
+
+    u8g2.drawStr(X_OFFSET, y, text);
 }

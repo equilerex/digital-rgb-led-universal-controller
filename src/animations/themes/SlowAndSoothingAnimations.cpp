@@ -77,26 +77,32 @@ private:
         // Gradually blend palettes over 90 seconds
         if(paletteBlendProgress < 1.0) {
             paletteBlendProgress += 0.0001;  // ~90s transition
-            for(int i = 0; i < 256; i++) {
-                currentPalette[i] = blend(
-                    currentPalette[i],
-                    targetPalette[i],
+            // Blend only a subset per frame to avoid blocking
+            static uint8_t blendIndex = 0;
+            for(int i = 0; i < 16; i++) { // Blend 16 entries per frame
+                uint8_t idx = (blendIndex + i) % 256;
+                currentPalette[idx] = blend(
+                    currentPalette[idx],
+                    targetPalette[idx],
                     (uint8_t)(255 * smoothstep(0, 1, paletteBlendProgress))
                 );
             }
+            blendIndex = (blendIndex + 16) % 256;
         }
     }
 
     // Update dream state with slow drifts
     void evolveDreamState() {
         // Hours-long hue cycle (1 full cycle per ~2 hours)
-        state.hue = fmod(state.hue + 0.0001, 256.0);
+        state.hue += 0.0001;
+        if (state.hue >= 256.0) state.hue -= 256.0;
 
         // Slowly drifting parameters
         state.hueDrift = sin8(millis() / 42000.0) / 512.0;
         state.pulseCenter = 0.5 + 0.3 * sin8(millis() / 38000.0) / 255.0;
         state.pulseWidth = 0.2 + 0.1 * sin8(millis() / 57000.0) / 255.0;
-        state.energyFlow = fmod(state.energyFlow + 0.00003, 1.0);
+        state.energyFlow += 0.00003;
+        if (state.energyFlow >= 1.0) state.energyFlow -= 1.0;
         state.phaseShift = sin8(millis() / 29000.0) / 255.0;
 
         // Wave evolution (changes every few minutes)

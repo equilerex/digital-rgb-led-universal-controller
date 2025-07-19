@@ -26,7 +26,7 @@ private:
 public:
     BeatTrailsAnimation(CRGB* leds, uint16_t count) : Animation(leds, count, "Beat Trails") {}
     void update() override {
-        fadeToBlackBy(leds, numLeds, 40);
+       // fadeToBlackBy(leds, numLeds, 40);
         int pos = beatsin16(30, 0, numLeds-1);
         leds[pos] += CHSV(gHue, 255, brightness);
         EVERY_N_MILLISECONDS(10) { gHue++; }

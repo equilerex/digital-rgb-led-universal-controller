@@ -17,7 +17,7 @@ std::vector<AnimationInfo> globalAnimationRegistry;
 
 AnimationManager::AnimationManager(SystemManager& systemManager, CRGB* leds) : systemManager(systemManager), leds(leds), numLeds(DEFAULT_NUM_LEDS),
       brightness(DEFAULT_BRIGHTNESS), currentPatternIndex(0), currentAnimation(nullptr),
-      isInitialized(false), currentShuffleIndex(0), lastShuffleTime(0), inShuffleTransition(false), shuffleTransitionStart(0), shuffleTransitionNewIndex(0) {
+      isInitialized(false), currentShuffleIndex(0), lastShuffleTime(0), inShuffleTransition(false), shuffleTransitionStart(0), shuffleTransitionNewIndex(0), currentShuffleDuration(SHUFFLE_DURATION) {
 
     memset(oldLedsBuffer, 0, sizeof(oldLedsBuffer));
     memset(tempLeds, 0, sizeof(tempLeds));
@@ -33,11 +33,12 @@ AnimationManager::~AnimationManager() {
 void AnimationManager::begin() {
     Serial.println(F("AnimationManager Starting..."));
 
-    uint16_t restoredNumLeds = systemManager.getSavedNumber(Config::PREF_NUM_LEDS_KEY, DEFAULT_NUM_LEDS);
-    uint16_t restoredBrightness = systemManager.getSavedNumber(Config::PREF_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS);
-    numLeds = std::clamp(systemManager.getSavedNumber(Config::PREF_NUM_LEDS_KEY, DEFAULT_NUM_LEDS), (uint16_t)MIN_LEDS, (uint16_t)MAX_LEDS);
-    brightness = std::clamp(systemManager.getSavedNumber(Config::PREF_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS), (uint16_t)MIN_BRIGHTNESS, (uint16_t)MAX_BRIGHTNESS);
-
+    Preferences prefs;
+    prefs.begin(Config::PREF_NAMESPACE, false);
+    uint16_t restoredNumLeds = prefs.getUShort(Config::PREF_NUM_LEDS_KEY, DEFAULT_NUM_LEDS);
+    uint8_t restoredBrightness = prefs.getUChar(Config::PREF_BRIGHTNESS_KEY, DEFAULT_BRIGHTNESS);
+    numLeds = std::clamp(restoredNumLeds, (uint16_t)MIN_LEDS, (uint16_t)MAX_LEDS);
+    brightness = std::clamp(restoredBrightness, (uint8_t)MIN_BRIGHTNESS, (uint8_t)MAX_BRIGHTNESS);
 
     Serial.print(F("Boot with numLeds: ")); Serial.println(numLeds);
     Serial.print(F("Boot with brightness: ")); Serial.println(brightness);
@@ -49,8 +50,8 @@ void AnimationManager::begin() {
     FastLED.addLeds<LED_TYPE, LED_DATA_PIN, COLOR_ORDER>(leds, MAX_LEDS);
     FastLED.setBrightness(brightness);
     #if defined(MAX_MILLIAMPS)
-    	Serial.print(F("Setting power limit: ")); Serial.print(MAX_MILLIAMPS); Serial.println(F(" mA"));
-    	FastLED.setMaxPowerInVoltsAndMilliamps(5, MAX_MILLIAMPS);
+        Serial.print(F("Setting power limit: ")); Serial.print(MAX_MILLIAMPS); Serial.println(F(" mA"));
+        FastLED.setMaxPowerInVoltsAndMilliamps(5, MAX_MILLIAMPS);
     #endif
     Serial.println(F("=== LED initialization complete! ==="));
 
@@ -60,12 +61,11 @@ void AnimationManager::begin() {
 
     if (globalAnimationRegistry.empty()) {
         Serial.println(F("ERROR: No animations registered! Check theme includes."));
+        prefs.end();
         return;
     }
 
     // Load saved pattern with validation
-    Preferences prefs;
-    prefs.begin(Config::PREF_NAMESPACE, false);
     uint8_t savedPatternIndex = prefs.getUChar(Config::PREF_PATTERN_KEY, 0);
     if (!prefs.isKey(Config::PREF_PATTERN_KEY)) {
         Serial.println(F("[WARNING] No saved pattern found; using default index 0"));
@@ -79,6 +79,11 @@ void AnimationManager::begin() {
     prefs.end();
 
     setCurrentPattern(savedPatternIndex);
+
+     if (currentAnimation) {
+        currentAnimation->setBrightness(brightness);
+        currentAnimation->update();
+    }
 
     isInitialized = true;
     Serial.println(F("Animation system ready"));
@@ -106,7 +111,7 @@ void AnimationManager::update() {
 
     // Shuffle mode logic
     if (inShuffleMode()) {
-        if (!lastShuffleTime || millis() - lastShuffleTime > SHUFFLE_DURATION) {
+        if (!lastShuffleTime || millis() - lastShuffleTime > currentShuffleDuration) {
             pickNewShuffle();
         }
         if (inShuffleTransition) {
@@ -197,6 +202,9 @@ void AnimationManager::logFastLEDDiagnostics() {
 void AnimationManager::registerAnimations() {
     Serial.println(F("DEBUG: Starting registerAnimations"));
     globalAnimationRegistry.clear();
+
+
+    // --- Theme includes ---
     #include "themes/AutoShufflePlaceholder.cpp"
     #include "themes/SlowAndSoothingAnimations.cpp"
     #include "themes/SolidColorAnimations.cpp"
@@ -356,14 +364,38 @@ void AnimationManager::startShuffleTransition(uint8_t newIndex) {
 
 void AnimationManager::pickNewShuffle() {
     lastShuffleTime = millis();
-    if (globalAnimationRegistry.size() <= 1) {
-        Serial.println(F("No animations to shuffle"));
+    switch (currentPatternIndex) {
+    case 0:
+        currentShuffleDuration = random(5000, 30000); // random 5-30s
+        break;
+    case 1:
+        currentShuffleDuration = 5000; // 5s
+        break;
+    case 2:
+        currentShuffleDuration = 10000; // 10s
+        break;
+    case 3:
+        currentShuffleDuration = 300000; // 5min
+        break;
+    default:
+        currentShuffleDuration = SHUFFLE_DURATION;
+}
+    // Build a list of valid shuffle indices (exclude solid colors)
+    std::vector<uint8_t> validIndices;
+    for (uint8_t i = 0; i < globalAnimationRegistry.size(); ++i) {
+        const char* name = globalAnimationRegistry[i].name;
+        if (strstr(name, "-NoShuffle") == nullptr) {
+            validIndices.push_back(i);
+        }
+    }
+    if (validIndices.size() <= 1) {
+        Serial.println(F("No valid animations to shuffle"));
         return;
     }
     // Pick a new shuffle index different from current
     uint8_t newIndex;
     do {
-        newIndex = random8(1, globalAnimationRegistry.size());
+        newIndex = validIndices[random8(validIndices.size())];
     } while (newIndex == currentShuffleIndex);
     currentShuffleIndex = newIndex;
     startShuffleTransition(currentShuffleIndex);
@@ -372,4 +404,5 @@ void AnimationManager::pickNewShuffle() {
     Serial.print(F(" - Name: "));
     Serial.println(globalAnimationRegistry[currentShuffleIndex].name);
 }
+
 

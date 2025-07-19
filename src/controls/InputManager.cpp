@@ -106,7 +106,7 @@ void InputManager::handleLongPressStop() {
     } else if (ledCountDownMode) {
         systemManager->setNumLeds(systemManager->getNumLeds() - ADJUST_NUM_LEDS_INCREMENT);
     } else {
-        systemManager->setCurrentPattern(systemManager->getNumLeds() + ADJUST_NUM_LEDS_INCREMENT); // Increase
+        systemManager->setCurrentPattern(0); // Set to shuffle mode (pattern index 0)
     }
     brightnessMode = false;
     longPressMode = false;

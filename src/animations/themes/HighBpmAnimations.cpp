@@ -20,14 +20,14 @@ static Registrar<HeartbeatAnimation> heartbeatRegistrator("Heartbeat");
 
 class StrobePulseAnimation : public Animation {
 public:
-    StrobePulseAnimation(CRGB* leds, uint16_t count) : Animation(leds, count, "Strobe Pulse") {}
+    StrobePulseAnimation(CRGB* leds, uint16_t count) : Animation(leds, count, "Strobe Pulse -NoShuffle") {}
     void update() override {
         uint8_t pulse = beatsin8(120, 50, 255);
         CRGB color = pulse > 200 ? CRGB(CHSV(random8(), 255, brightness)) : CRGB::Black;
         fill_solid(leds, numLeds, color);
     }
 };
-static Registrar<StrobePulseAnimation> strobePulseRegistrator("Strobe Pulse");
+static Registrar<StrobePulseAnimation> strobePulseRegistrator("Strobe Pulse -NoShuffle");
 
 class BeatScannerAnimation : public Animation {
 private:
